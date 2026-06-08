@@ -1,0 +1,38 @@
+*.iml
+.gradle
+/local.properties
+/.idea/caches
+/.idea/libraries
+/.idea/modules.xml
+/.idea/workspace.xml
+/.idea/navEditor.xml
+/.idea/assetWizardSettings.xml
+.DS_Store
+/build
+/captures
+.externalNativeBuild
+.cxx
+local.properties
+
+# Windows 临时文件
+*~
+*.bak
+*.swp
+Thumbs.db
+新建 文本文档*.txt
+
+# STM32 固件库（标准库，从 ST 官网下载）
+firmware/libra/
+
+# STM32 固件构建产物
+firmware/Listings/
+firmware/Objects/
+firmware/*.o
+firmware/*.d
+firmware/*.crf
+firmware/*.dep
+firmware/*.map
+firmware/*.axf
+firmware/*.hex
+firmware/*.bin
+firmware/*.htm
