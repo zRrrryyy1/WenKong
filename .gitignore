@@ -19,7 +19,7 @@ local.properties
 *.bak
 *.swp
 Thumbs.db
-新建 文本文档*.txt
+*新建 文本文档*.txt
 
 # STM32 固件库（标准库，从 ST 官网下载）
 firmware/libra/
