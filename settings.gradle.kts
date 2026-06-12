@@ -17,4 +17,5 @@ dependencyResolutionManagement {
 
 rootProject.name = "WenKong"
 include(":app")
+include(":server")
  

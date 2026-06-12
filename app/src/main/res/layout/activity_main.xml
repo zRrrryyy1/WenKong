@@ -145,6 +145,19 @@
                     <TextView android:id="@+id/tvPWM" android:layout_width="0dp" android:layout_height="wrap_content"
                         android:layout_weight="1" android:gravity="end" android:text="---" android:textColor="#212121" android:textSize="18sp" android:textStyle="bold" />
                 </LinearLayout>
+
+                <!-- PID 参数 -->
+                <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="8dp"
+                    android:orientation="horizontal">
+                    <TextView android:layout_width="0dp" android:layout_height="wrap_content"
+                        android:layout_weight="1" android:text="PID" android:textColor="#757575" android:textSize="14sp" />
+                    <TextView android:id="@+id/tvKp" android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:text="Kp:--" android:textColor="#212121" android:textSize="14sp" android:layout_marginEnd="12dp" />
+                    <TextView android:id="@+id/tvKi" android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:text="Ki:--" android:textColor="#212121" android:textSize="14sp" android:layout_marginEnd="12dp" />
+                    <TextView android:id="@+id/tvKd" android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:text="Kd:--" android:textColor="#212121" android:textSize="14sp" />
+                </LinearLayout>
             </LinearLayout>
 
             <!-- 温度曲线 -->
@@ -264,16 +277,15 @@
                 <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
                     android:text="通信日志" android:textColor="#757575" android:textSize="12sp" />
 
-                <ScrollView android:layout_width="match_parent" android:layout_height="match_parent">
-                    <TextView
-                        android:id="@+id/tvLog"
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:fontFamily="monospace"
-                        android:text="等待连接..."
-                        android:textColor="#212121"
-                        android:textSize="11sp" />
-                </ScrollView>
+                <TextView
+                    android:id="@+id/tvLog"
+                    android:layout_width="match_parent"
+                    android:layout_height="match_parent"
+                    android:fontFamily="monospace"
+                    android:scrollbars="vertical"
+                    android:text="等待连接..."
+                    android:textColor="#212121"
+                    android:textSize="11sp" />
             </LinearLayout>
         </LinearLayout>
     </ScrollView>

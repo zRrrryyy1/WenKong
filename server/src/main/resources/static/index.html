@@ -1,0 +1,332 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>WenKong 温控 · 云端监控</title>
+<script src="https://cdn.jsdelivr.net/npm/echarts@5/dist/echarts.min.js"></script>
+<style>
+:root {
+  --primary: #1976D2;
+  --primary-dark: #1565C0;
+  --accent: #F4511E;
+  --bg: #F5F7FA;
+  --card: #FFFFFF;
+  --text: #263238;
+  --text-secondary: #78909C;
+  --success: #4CAF50;
+  --danger: #F44336;
+  --radius: 12px;
+  --shadow: 0 2px 12px rgba(0,0,0,0.08);
+}
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; }
+
+/* 导航栏 */
+.navbar {
+  background: linear-gradient(135deg, var(--primary-dark), var(--primary));
+  color: #fff; padding: 16px 24px;
+  display: flex; justify-content: space-between; align-items: center;
+  box-shadow: 0 2px 8px rgba(25,118,210,0.3);
+  position: sticky; top: 0; z-index: 100;
+}
+.navbar .logo { display: flex; align-items: center; gap: 10px; }
+.navbar .logo h1 { font-size: 18px; font-weight: 600; letter-spacing: 0.5px; }
+.navbar .logo .dot { width: 8px; height: 8px; border-radius: 50%; background: #4CAF50; animation: pulse 2s infinite; }
+@keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
+.navbar .temp-big { font-size: 26px; font-weight: 700; }
+
+/* 容器 */
+.container { max-width: 800px; margin: 0 auto; padding: 16px; }
+
+/* 实时温度大卡片 */
+.hero-card {
+  background: linear-gradient(135deg, var(--primary), #2196F3);
+  border-radius: var(--radius);
+  padding: 24px;
+  color: #fff;
+  box-shadow: var(--shadow);
+  margin-bottom: 16px;
+  position: relative;
+  overflow: hidden;
+}
+.hero-card::after {
+  content: ''; position: absolute; top: -50%; right: -20%;
+  width: 200px; height: 200px; border-radius: 50%;
+  background: rgba(255,255,255,0.05);
+}
+.hero-card .label { font-size: 13px; opacity: 0.8; margin-bottom: 4px; }
+.hero-card .temp-value {
+  font-size: 64px; font-weight: 700; line-height: 1;
+  margin: 8px 0;
+}
+.hero-card .temp-sub {
+  display: flex; gap: 24px; font-size: 14px; opacity: 0.9;
+  margin-top: 8px;
+}
+.hero-card .mode-tag {
+  display: inline-block; padding: 4px 12px; border-radius: 20px;
+  background: rgba(255,255,255,0.2); font-size: 12px;
+  margin-top: 12px;
+}
+.hero-card .status-dot {
+  display: inline-block; width: 6px; height: 6px; border-radius: 50%;
+  margin-right: 6px; vertical-align: middle;
+}
+.status-dot.online { background: #4CAF50; }
+.status-dot.offline { background: #F44336; }
+
+/* 数据卡片网格 */
+.grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 16px; }
+.card {
+  background: var(--card); border-radius: var(--radius);
+  padding: 16px; box-shadow: var(--shadow);
+}
+.card h3 { font-size: 12px; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 12px; }
+.card .value-row { display: flex; justify-content: space-between; align-items: center; padding: 6px 0; }
+.card .value-row .lbl { font-size: 13px; color: var(--text-secondary); }
+.card .value-row .val { font-size: 15px; font-weight: 600; }
+.card .val.good { color: var(--success); }
+.card .val.warn { color: var(--accent); }
+.card .val.bad { color: var(--danger); }
+.card .val.primary { color: var(--primary); }
+
+/* PID 参数 */
+.pid-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-top: 8px; }
+.pid-item { text-align: center; padding: 8px; background: #F5F7FA; border-radius: 8px; }
+.pid-item .pid-label { font-size: 11px; color: var(--text-secondary); }
+.pid-item .pid-value { font-size: 18px; font-weight: 700; color: var(--primary); }
+
+/* 图表 */
+.chart-card {
+  background: var(--card); border-radius: var(--radius);
+  padding: 16px; box-shadow: var(--shadow); margin-bottom: 16px;
+}
+.chart-card h3 { font-size: 13px; color: var(--text-secondary); margin-bottom: 12px; }
+#tempChart { width: 100%; height: 280px; }
+.chart-legend { display: flex; gap: 16px; margin-top: 8px; font-size: 12px; color: var(--text-secondary); }
+.chart-legend span { display: flex; align-items: center; gap: 4px; }
+.chart-legend .line { display: inline-block; width: 20px; height: 3px; border-radius: 2px; }
+
+/* 统计栏 */
+.stats-bar {
+  display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px;
+  margin-bottom: 16px;
+}
+.stat-item {
+  background: var(--card); border-radius: var(--radius);
+  padding: 12px 16px; box-shadow: var(--shadow); text-align: center;
+}
+.stat-item .stat-label { font-size: 11px; color: var(--text-secondary); }
+.stat-item .stat-value { font-size: 18px; font-weight: 700; margin-top: 4px; }
+
+/* 响应式 */
+@media (max-width: 600px) {
+  .grid { grid-template-columns: 1fr; }
+  .stats-bar { grid-template-columns: repeat(2, 1fr); }
+  .hero-card .temp-value { font-size: 48px; }
+  .navbar { padding: 12px 16px; }
+}
+
+/* 空状态 */
+.empty-state { text-align: center; padding: 40px 20px; color: var(--text-secondary); }
+.empty-state .icon { font-size: 48px; margin-bottom: 12px; }
+.empty-state p { font-size: 14px; }
+</style>
+</head>
+<body>
+
+<div class="navbar">
+  <div class="logo">
+    <span class="dot"></span>
+    <h1>WenKong 温控</h1>
+  </div>
+  <div class="temp-big" id="navTemp">--.-°C</div>
+</div>
+
+<div class="container">
+
+  <!-- 实时温度 -->
+  <div class="hero-card" id="heroCard">
+    <div class="label">当前温度</div>
+    <div class="temp-value" id="currentTemp">--.-°C</div>
+    <div class="temp-sub">
+      <span>目标 <strong id="setTemp">--.-°C</strong></span>
+      <span>误差 <strong id="errVal">--.-°C</strong></span>
+      <span>PWM <strong id="pwmVal">---</strong></span>
+    </div>
+    <div>
+      <span class="status-dot offline" id="statusDot"></span>
+      <span class="mode-tag" id="modeVal">等待连接</span>
+    </div>
+  </div>
+
+  <!-- 状态卡片 -->
+  <div class="grid">
+    <div class="card">
+      <h3>📊 运行状态</h3>
+      <div class="value-row"><span class="lbl">设备</span><span class="val" id="deviceVal">wenkong-001</span></div>
+      <div class="value-row"><span class="lbl">连接</span><span class="val good" id="connectVal">等待数据</span></div>
+      <div class="value-row"><span class="lbl">数据条数</span><span class="val primary" id="dataCount">0</span></div>
+    </div>
+    <div class="card">
+      <h3>⚙️ PID 参数</h3>
+      <div class="pid-grid">
+        <div class="pid-item"><div class="pid-label">Kp</div><div class="pid-value" id="kpVal">--</div></div>
+        <div class="pid-item"><div class="pid-label">Ki</div><div class="pid-value" id="kiVal">--</div></div>
+        <div class="pid-item"><div class="pid-label">Kd</div><div class="pid-value" id="kdVal">--</div></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 曲线 -->
+  <div class="chart-card">
+    <h3>📈 温度曲线（最近 60 条）</h3>
+    <div id="tempChart"></div>
+    <div class="chart-legend">
+      <span><span class="line" style="background:#1976D2"></span> 温度</span>
+      <span><span class="line" style="background:#F4511E;border-top:2px dashed #F4511E"></span> 目标温度</span>
+      <span><span class="line" style="background:#4CAF50"></span> 控温精准</span>
+      <span><span class="line" style="background:#F44336"></span> 偏差 > 0.5°C</span>
+    </div>
+  </div>
+
+  <!-- 统计 -->
+  <div class="stats-bar">
+    <div class="stat-item"><div class="stat-label">最高</div><div class="stat-value" style="color:#F44336" id="maxTemp">--.-</div></div>
+    <div class="stat-item"><div class="stat-label">最低</div><div class="stat-value" style="color:#1976D2" id="minTemp">--.-</div></div>
+    <div class="stat-item"><div class="stat-label">平均</div><div class="stat-value" style="color:#4CAF50" id="avgTemp">--.-</div></div>
+    <div class="stat-item"><div class="stat-label">更新</div><div class="stat-value" style="font-size:14px" id="lastUpdate">--:--:--</div></div>
+  </div>
+
+</div>
+
+<script>
+const chart = echarts.init(document.getElementById('tempChart'));
+let timeData = [], tempData = [], setData = [], errData = [];
+
+function initChart() {
+  chart.setOption({
+    tooltip: {
+      trigger: 'axis',
+      formatter: function(params) {
+        let s = params[0].axisValue + '<br/>';
+        params.forEach(p => {
+          if (p.seriesName === '偏差标记') return;
+          s += p.marker + ' ' + p.seriesName + ': ' + p.value + '°C<br/>';
+        });
+        if (errData[params[0].dataIndex] !== undefined) {
+          const err = errData[params[0].dataIndex];
+          s += '误差: ' + (err > 0 ? '+' : '') + err.toFixed(2) + '°C';
+        }
+        return s;
+      }
+    },
+    legend: { data: ['温度', '目标温度'], bottom: 0, textStyle: { fontSize: 11 } },
+    grid: { left: 50, right: 16, top: 10, bottom: 30 },
+    xAxis: { type: 'category', data: timeData, boundaryGap: false,
+      axisLabel: { fontSize: 10, color: '#78909C' },
+      axisLine: { lineStyle: { color: '#CFD8DC' } }
+    },
+    yAxis: { type: 'value', min: 15, max: 55,
+      splitLine: { lineStyle: { color: '#ECEFF1', type: 'dashed' } },
+      axisLabel: { color: '#78909C' }
+    },
+    series: [
+      {
+        name: '温度', type: 'line', data: tempData, smooth: true,
+        showSymbol: false,
+        lineStyle: { color: '#1976D2', width: 2 },
+        areaStyle: { color: { type: 'linear', x: 0, y: 0, x2: 0, y2: 1,
+          colorStops: [{ offset: 0, color: 'rgba(25,118,210,0.2)' }, { offset: 1, color: 'rgba(25,118,210,0.01)' }]
+        }}
+      },
+      {
+        name: '目标温度', type: 'line', data: setData, smooth: false,
+        showSymbol: false,
+        lineStyle: { color: '#F4511E', width: 2, type: 'dashed' },
+        itemStyle: { color: '#F4511E' }
+      }
+    ]
+  });
+}
+
+function updateChart() {
+  fetch('/api/temps/recent?deviceId=wenkong-001')
+    .then(r => r.json())
+    .then(data => {
+      data.reverse();
+      timeData = data.map(d => { const t = d.timestamp; return t ? t.substring(11, 19) : ''; });
+      tempData = data.map(d => d.temperature);
+      setData = data.map(d => d.setpoint);
+      errData = data.map(d => d.error != null ? d.error : 0);
+
+      chart.setOption({
+        xAxis: { data: timeData },
+        series: [
+          { data: tempData },
+          { data: setData }
+        ]
+      });
+
+      if (tempData.length > 0) {
+        const valid = tempData.filter(t => t != null);
+        const sum = valid.reduce((a, b) => a + b, 0);
+        document.getElementById('maxTemp').textContent = Math.max(...valid).toFixed(1);
+        document.getElementById('minTemp').textContent = Math.min(...valid).toFixed(1);
+        document.getElementById('avgTemp').textContent = (sum / valid.length).toFixed(1);
+        document.getElementById('dataCount').textContent = data.length;
+        const last = data[data.length - 1];
+        if (last && last.timestamp) {
+          document.getElementById('lastUpdate').textContent = last.timestamp.substring(11, 19);
+        }
+      }
+    })
+    .catch(() => {});
+}
+
+function updateStatus() {
+  fetch('/api/current?deviceId=wenkong-001')
+    .then(r => r.json())
+    .then(d => {
+      if (d.temperature != null) {
+        const temp = d.temperature.toFixed(1);
+        const sp = (d.setpoint || 0).toFixed(1);
+        const err = (d.temperature - (d.setpoint || 0)).toFixed(1);
+
+        document.getElementById('navTemp').textContent = temp + '°C';
+        document.getElementById('currentTemp').textContent = temp + '°C';
+        document.getElementById('setTemp').textContent = sp + '°C';
+        document.getElementById('errVal').textContent = err + '°C';
+        document.getElementById('pwmVal').textContent = d.pwm || 0;
+        document.getElementById('modeVal').textContent = 'Mode: ' + (d.mode || '--');
+        document.getElementById('connectVal').textContent = '在线';
+        document.getElementById('connectVal').className = 'val good';
+        document.getElementById('statusDot').className = 'status-dot online';
+
+        // PID 参数
+        document.getElementById('kpVal').textContent = d.kp != null ? d.kp.toFixed(1) : '--';
+        document.getElementById('kiVal').textContent = d.ki != null ? d.ki.toFixed(2) : '--';
+        document.getElementById('kdVal').textContent = d.kd != null ? d.kd.toFixed(2) : '--';
+
+        // 误差颜色
+        const errEl = document.getElementById('errVal');
+        const absErr = Math.abs(d.temperature - (d.setpoint || 0));
+        errEl.style.color = absErr > 0.5 ? '#F44336' : '#4CAF50';
+      }
+    })
+    .catch(() => {
+      document.getElementById('connectVal').textContent = '离线';
+      document.getElementById('connectVal').className = 'val bad';
+      document.getElementById('statusDot').className = 'status-dot offline';
+    });
+}
+
+initChart();
+updateStatus();
+updateChart();
+setInterval(updateStatus, 3000);
+setInterval(updateChart, 5000);
+</script>
+</body>
+</html>

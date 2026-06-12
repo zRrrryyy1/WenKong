@@ -19,6 +19,7 @@ import android.os.Looper;
 import android.os.Message;
 import android.provider.Settings;
 import android.text.TextUtils;
+import android.view.MotionEvent;
 import android.view.View;
 import android.widget.*;
 
@@ -30,6 +31,7 @@ public class MainActivity extends Activity {
 
     // ===== UI =====
     private TextView tvTemp, tvSet, tvErr, tvPWM, tvMode, tvStatus, tvLog;
+    private TextView tvKp, tvKi, tvKd;
     private TextView tvATStatus, tvATProgress, tvATDetail;
     private EditText etSetTemp;
     private Button btnSetTemp, btnATune, btnAbort, btnApply, btnIgnore;
@@ -48,10 +50,13 @@ public class MainActivity extends Activity {
     private boolean isScanning = false;
     private final Handler scanTimeoutHandler = new Handler(Looper.getMainLooper());
     private AlertDialog scanDialog;
+    private ArrayAdapter<String> scanAdapter;   // 扫描列表适配器（复用）
 
     // ===== 数据 =====
     private float currentTemp;
+    private float lastKp = 6.0f, lastKi = 0.6f, lastKd = 0.7f;  // PID 参数（默认值）
     private boolean hasATResult = false;     // 防止重复弹窗
+    private DataUploader uploader;           // 云端数据上报
 
     // ===== 常量 =====
     private static final UUID SPP_UUID = UUID.fromString("00001101-0000-1000-8000-00805F9B34FB");
@@ -158,19 +163,44 @@ public class MainActivity extends Activity {
         btnApply   = findViewById(R.id.btnApply);
         btnIgnore  = findViewById(R.id.btnIgnore);
         chart      = findViewById(R.id.chart);
+        tvKp       = findViewById(R.id.tvKp);
+        tvKi       = findViewById(R.id.tvKi);
+        tvKd       = findViewById(R.id.tvKd);
         layoutATProgress = findViewById(R.id.layoutATProgress);
         progressBar = findViewById(R.id.progressBar);
         tvATStatus  = findViewById(R.id.tvATStatus);
         tvATProgress = findViewById(R.id.tvATProgress);
         tvATDetail  = findViewById(R.id.tvATDetail);
+        tvLog.setMovementMethod(new android.text.method.ScrollingMovementMethod());
+        tvLog.setOnTouchListener(new View.OnTouchListener() {
+            @Override public boolean onTouch(View v, MotionEvent event) {
+                v.getParent().requestDisallowInterceptTouchEvent(true);
+                return false;
+            }
+        });
 
         btAdapter = BluetoothAdapter.getDefaultAdapter();
+        uploader = new DataUploader();
+        updatePidDisplay();  // 显示默认 PID 参数
 
         // 标题栏：点击连接 / 长按断开
         findViewById(R.id.titleBar).setOnClickListener(new View.OnClickListener() {
             @Override public void onClick(View v) {
-                if (checkBluetoothPermissions()) showDeviceList();
-                else requestBluetoothPermissions();
+                try {
+                    if (btAdapter == null) {
+                        toast("此设备不支持蓝牙");
+                        return;
+                    }
+                    if (!btAdapter.isEnabled()) {
+                        toast("请先打开蓝牙");
+                        return;
+                    }
+                    if (checkBluetoothPermissions()) showDeviceList();
+                    else requestBluetoothPermissions();
+                } catch (Exception e) {
+                    toast("错误: " + e.getMessage());
+                    log("错误: " + e.toString());
+                }
             }
         });
         findViewById(R.id.titleBar).setOnLongClickListener(new View.OnLongClickListener() {
@@ -181,6 +211,14 @@ public class MainActivity extends Activity {
             @Override public void onClick(View v) {
                 String val = etSetTemp.getText().toString().trim();
                 if (!TextUtils.isEmpty(val)) sendCmd(val);
+            }
+        });
+        // 输入框聚焦时全选文字，方便直接覆盖输入
+        etSetTemp.setOnFocusChangeListener(new View.OnFocusChangeListener() {
+            @Override public void onFocusChange(View v, boolean hasFocus) {
+                if (hasFocus) {
+                    etSetTemp.selectAll();
+                }
             }
         });
         btnATune.setOnClickListener(new View.OnClickListener() {
@@ -321,9 +359,26 @@ public class MainActivity extends Activity {
         // 开始扫描
         startDiscovery();
 
-        // 构建扫描对话框
+        // 创建可复用的 ListView 和适配器
+        ListView scanListView = new ListView(this);
+        scanAdapter = new ArrayAdapter<>(this,
+                android.R.layout.simple_list_item_1, new ArrayList<String>());
+        scanListView.setAdapter(scanAdapter);
+        scanListView.setOnItemClickListener(new AdapterView.OnItemClickListener() {
+            @Override public void onItemClick(AdapterView<?> parent, View view, int pos, long id) {
+                if (pos >= 0 && pos < discoveredDevices.size()) {
+                    DiscoveredDevice dev = discoveredDevices.get(pos);
+                    stopDiscovery();
+                    scanDialog.dismiss();
+                    connectToDevice(dev.address);
+                }
+            }
+        });
+
+        // 构建对话框（ListView 在 show 之前设置）
         AlertDialog.Builder builder = new AlertDialog.Builder(this);
         builder.setTitle("正在扫描...");
+        builder.setView(scanListView);
         builder.setNegativeButton("取消", new DialogInterface.OnClickListener() {
             @Override public void onClick(DialogInterface d, int w) { stopDiscovery(); }
         });
@@ -344,21 +399,44 @@ public class MainActivity extends Activity {
         isScanning = true;
         discoveredDevices.clear();
 
-        // 注册广播接收器
-        registerReceiver(discoveryReceiver, new IntentFilter(BluetoothDevice.ACTION_FOUND));
+        // 注册广播接收器（Android 14+ 需要指定 RECEIVER_NOT_EXPORTED）
+        try {
+            IntentFilter filter = new IntentFilter(BluetoothDevice.ACTION_FOUND);
+            if (Build.VERSION.SDK_INT >= 33) {
+                registerReceiver(discoveryReceiver, filter, 4);
+            } else {
+                registerReceiver(discoveryReceiver, filter);
+            }
+        } catch (Exception e) {
+            log("注册接收器失败: " + e.toString());
+            isScanning = false;
+            return;
+        }
 
         // 先加入已配对设备
         if (btAdapter.isEnabled()) {
-            for (BluetoothDevice dev : btAdapter.getBondedDevices()) {
-                if (dev != null) {
-                    discoveredDevices.add(new DiscoveredDevice(
-                            dev.getName() != null ? dev.getName() : "未知设备",
-                            dev.getAddress(), (short) 0, true));
+            try {
+                for (BluetoothDevice dev : btAdapter.getBondedDevices()) {
+                    if (dev != null) {
+                        discoveredDevices.add(new DiscoveredDevice(
+                                dev.getName() != null ? dev.getName() : "未知设备",
+                                dev.getAddress(), (short) 0, true));
+                    }
                 }
+            } catch (SecurityException e) {
+                log("获取配对列表失败: " + e.toString());
             }
         }
 
-        btAdapter.startDiscovery();
+        // 开始扫描
+        try {
+            btAdapter.startDiscovery();
+        } catch (SecurityException e) {
+            log("启动扫描失败: " + e.toString());
+            toast("蓝牙扫描权限不足，请在设置中允许");
+            isScanning = false;
+            return;
+        }
 
         // 超时自动停止
         scanTimeoutHandler.postDelayed(new Runnable() {
@@ -384,31 +462,16 @@ public class MainActivity extends Activity {
     }
 
     private void updateScanDialog() {
-        if (scanDialog == null || !scanDialog.isShowing()) return;
+        if (scanDialog == null || !scanDialog.isShowing() || scanAdapter == null) return;
 
-        final String[] items = new String[discoveredDevices.size()];
-        for (int i = 0; i < discoveredDevices.size(); i++) {
-            items[i] = discoveredDevices.get(i).getDisplayName();
+        // 清空并重新填充适配器数据（不重建适配器，ListView 自动刷新）
+        scanAdapter.clear();
+        for (DiscoveredDevice device : discoveredDevices) {
+            scanAdapter.add(device.getDisplayName());
         }
 
         String title = isScanning ? "正在扫描... (" + discoveredDevices.size() + ")" : "已完成 (" + discoveredDevices.size() + ")";
         scanDialog.setTitle(title);
-        // 用 ListView 自定义布局代替 setItems（支持动态更新）
-        ListView listView = new ListView(this);
-        ArrayAdapter<String> adapter = new ArrayAdapter<>(this,
-                android.R.layout.simple_list_item_1, items);
-        listView.setAdapter(adapter);
-        listView.setOnItemClickListener(new AdapterView.OnItemClickListener() {
-            @Override public void onItemClick(AdapterView<?> parent, View view, int pos, long id) {
-                if (pos >= 0 && pos < discoveredDevices.size()) {
-                    DiscoveredDevice dev = discoveredDevices.get(pos);
-                    stopDiscovery();
-                    scanDialog.dismiss();
-                    connectToDevice(dev.address);
-                }
-            }
-        });
-        scanDialog.setView(listView);
     }
 
     private void updateScanDialogTitle(String title) {
@@ -517,18 +580,26 @@ public class MainActivity extends Activity {
         final String mode = kv.get("Mode");
         if (mode == null) return;
 
+        // ---- 设定温度（提前解析，供后续使用）----
+        String ss = kv.get("Set");
+
         // ---- 温度 + 模式 ----
         String ts = kv.get("Temp");
         if (ts != null) try {
             currentTemp = Float.parseFloat(ts);
             tvTemp.setText(String.format("%.1f°C", currentTemp));
             tvMode.setText("Mode: " + mode);
-            chart.addTemp(currentTemp);
+            float sp = ss != null ? Float.parseFloat(ss) : 0;
+            chart.addTemp(currentTemp, sp, mode);
         } catch (NumberFormatException ignored) {}
 
-        // ---- 设定温度 ----
-        String ss = kv.get("Set");
-        if (ss != null) { tvSet.setText(ss + "°C"); etSetTemp.setText(ss); }
+        // ---- 设定温度更新输入框（仅当用户没有正在编辑时）----
+        if (ss != null) {
+            tvSet.setText(ss + "°C");
+            if (!etSetTemp.hasFocus()) {
+                etSetTemp.setText(ss);
+            }
+        }
 
         // ---- PWM ----
         String ps = kv.get("PWM");
@@ -537,6 +608,16 @@ public class MainActivity extends Activity {
         // ---- 误差 ----
         String es = kv.get("Err");
         if (es != null) tvErr.setText(es + "°C");
+
+        // ---- 云端上报 ----
+        if (ts != null && !"Error".equals(mode) && !"Failed".equals(mode)) {
+            try {
+                float setpoint = ss != null ? Float.parseFloat(ss) : 0;
+                int pwm = ps != null ? Integer.parseInt(ps) : 0;
+                float error = es != null ? Float.parseFloat(es) : 0;
+                uploader.upload(currentTemp, setpoint, pwm, error, mode, lastKp, lastKi, lastKd);
+            } catch (NumberFormatException ignored) {}
+        }
 
         // ============================================================
         //  F-04：自整定进度可视化
@@ -558,6 +639,10 @@ public class MainActivity extends Activity {
             String kd = kv.get("Kd");
             String conf = kv.get("Conf");
             if (kp != null && ki != null && kd != null) {
+                lastKp = Float.parseFloat(kp);
+                lastKi = Float.parseFloat(ki);
+                lastKd = Float.parseFloat(kd);
+                updatePidDisplay();
                 enableATButtons(true);
                 if (!hasATResult) {
                     hasATResult = true;
@@ -660,7 +745,7 @@ public class MainActivity extends Activity {
     //  F-03：自整定结果弹窗
     // ================================================================
 
-    private void showATResultDialog(String kp, String ki, String kd, String conf) {
+    private void showATResultDialog(final String kp, final String ki, final String kd, String conf) {
         String stars;
         if (conf != null) {
             int c = 0;
@@ -670,15 +755,15 @@ public class MainActivity extends Activity {
             stars = "★★★☆☆";
         }
 
-        String msg = "推荐 PID 参数：\n\n"
+        final String msg = "推荐 PID 参数：\n\n"
                 + "  Kp = " + kp + "\n"
                 + "  Ki = " + ki + "\n"
                 + "  Kd = " + kd + "\n\n"
                 + "置信度：" + stars;
 
-        new AlertDialog.Builder(this)
+        final AlertDialog dialog = new AlertDialog.Builder(this)
                 .setTitle("🎯 自整定完成")
-                .setMessage(msg)
+                .setMessage(msg + "\n\n15 秒后自动应用参数...")
                 .setPositiveButton("✓ 应用参数", new DialogInterface.OnClickListener() {
                     @Override public void onClick(DialogInterface d, int w) {
                         sendCmd("APPLY");
@@ -693,6 +778,27 @@ public class MainActivity extends Activity {
                 })
                 .setCancelable(false)
                 .show();
+
+        // 15 秒倒计时自动应用
+        final int[] countdown = {15};
+        final Handler countHandler = new Handler(Looper.getMainLooper());
+        final Runnable countTask = new Runnable() {
+            @Override public void run() {
+                countdown[0]--;
+                if (countdown[0] > 0) {
+                    dialog.setMessage(msg + "\n\n" + countdown[0] + " 秒后自动应用参数...");
+                    countHandler.postDelayed(this, 1000);
+                } else {
+                    if (dialog.isShowing()) {
+                        dialog.dismiss();
+                        sendCmd("APPLY");
+                        enableATButtons(false);
+                        toast("已自动应用参数");
+                    }
+                }
+            }
+        };
+        countTask.run();
     }
 
     private String getStars(int confidence) {
@@ -701,6 +807,12 @@ public class MainActivity extends Activity {
         if (confidence >= 3) return "★★★☆☆";
         if (confidence >= 2) return "★★☆☆☆";
         return "★☆☆☆☆";
+    }
+
+    private void updatePidDisplay() {
+        tvKp.setText(String.format("Kp:%.1f", lastKp));
+        tvKi.setText(String.format("Ki:%.2f", lastKi));
+        tvKd.setText(String.format("Kd:%.2f", lastKd));
     }
 
     private void enableATButtons(boolean enabled) {
@@ -718,8 +830,21 @@ public class MainActivity extends Activity {
     }
     private void log(String s) {
         String cur = tvLog.getText().toString();
-        if ("等待连接...".equals(cur)) cur = "";
-        tvLog.setText(s + "\n" + cur);
+        if ("等待连接...".equals(cur) || cur.isEmpty()) {
+            tvLog.setText(s);
+        } else {
+            tvLog.append("\n" + s);
+        }
+        // 等布局刷新后自动滚到底部
+        tvLog.post(new Runnable() {
+            @Override public void run() {
+                int lineHeight = tvLog.getLineHeight();
+                int totalHeight = tvLog.getLineCount() * lineHeight;
+                if (totalHeight > tvLog.getHeight()) {
+                    tvLog.scrollTo(0, totalHeight - tvLog.getHeight());
+                }
+            }
+        });
     }
     private void toast(String s) {
         final String msg = s;
