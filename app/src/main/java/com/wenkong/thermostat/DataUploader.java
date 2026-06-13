@@ -27,8 +27,7 @@ import okhttp3.Response;
  */
 public class DataUploader {
 
-    /** 在此处切换服务器地址 */
-    private static final String BASE_URL = "http://10.192.37.160:8080";
+    private String baseUrl = "https://4007c502.r3.cpolar.top";
 
     private final OkHttpClient client;
     private final Gson gson;
@@ -41,6 +40,17 @@ public class DataUploader {
                 .readTimeout(5, TimeUnit.SECONDS)
                 .build();
         this.gson = new Gson();
+    }
+
+    /** 修改服务器地址（从设置中加载后调用） */
+    public void setBaseUrl(String url) {
+        if (url != null && !url.isEmpty()) {
+            this.baseUrl = url;
+        }
+    }
+
+    public String getBaseUrl() {
+        return baseUrl;
     }
 
     /**
@@ -64,7 +74,7 @@ public class DataUploader {
         data.put("mode", mode);
 
         Request request = new Request.Builder()
-                .url(BASE_URL + "/api/temps")
+                .url(baseUrl + "/api/temps")
                 .post(RequestBody.create(gson.toJson(data), JSON))
                 .build();
 
@@ -88,7 +98,7 @@ public class DataUploader {
         data.put("kd", kd);
 
         Request request = new Request.Builder()
-                .url(BASE_URL + "/api/current")
+                .url(baseUrl + "/api/current")
                 .post(RequestBody.create(gson.toJson(data), JSON))
                 .build();
 
@@ -110,7 +120,7 @@ public class DataUploader {
 
         // 同时也更新实时状态中的PID参数
         Request request = new Request.Builder()
-                .url(BASE_URL + "/api/current")
+                .url(baseUrl + "/api/current")
                 .post(RequestBody.create(gson.toJson(data), JSON))
                 .build();
 

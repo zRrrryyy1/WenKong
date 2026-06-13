@@ -11,6 +11,7 @@ import android.content.Context;
 import android.content.DialogInterface;
 import android.content.Intent;
 import android.content.IntentFilter;
+import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
 import android.os.Build;
 import android.os.Bundle;
@@ -66,6 +67,8 @@ public class MainActivity extends Activity {
     private static final int MSG_LOG = 4;
     private static final int REQUEST_BT_PERMISSIONS = 100;
     private static final int SCAN_TIMEOUT_MS = 12000;
+    private static final String PREF_NAME = "wenkong_prefs";
+    private static final String PREF_SERVER_URL = "server_url";
 
     // ===== Handler =====
     private final Handler handler = new Handler(Looper.getMainLooper()) {
@@ -182,6 +185,21 @@ public class MainActivity extends Activity {
         btAdapter = BluetoothAdapter.getDefaultAdapter();
         uploader = new DataUploader();
         updatePidDisplay();  // 显示默认 PID 参数
+
+        // 加载保存的服务器地址
+        SharedPreferences prefs = getSharedPreferences(PREF_NAME, MODE_PRIVATE);
+        String savedUrl = prefs.getString(PREF_SERVER_URL, null);
+        if (savedUrl != null) {
+            uploader.setBaseUrl(savedUrl);
+        }
+
+        // 底部状态栏长按 → 修改服务器地址
+        findViewById(R.id.tvStatus).setOnLongClickListener(new View.OnLongClickListener() {
+            @Override public boolean onLongClick(View v) {
+                showServerUrlDialog();
+                return true;
+            }
+        });
 
         // 标题栏：点击连接 / 长按断开
         findViewById(R.id.titleBar).setOnClickListener(new View.OnClickListener() {
@@ -851,5 +869,34 @@ public class MainActivity extends Activity {
         runOnUiThread(new Runnable() {
             @Override public void run() { Toast.makeText(MainActivity.this, msg, Toast.LENGTH_SHORT).show(); }
         });
+    }
+
+    /** 修改服务器地址对话框 */
+    private void showServerUrlDialog() {
+        final EditText input = new EditText(this);
+        input.setInputType(android.text.InputType.TYPE_CLASS_TEXT);
+        input.setText(uploader.getBaseUrl());
+        input.setSelection(input.getText().length());
+        input.setPadding(32, 32, 32, 32);
+        input.setHint("https://xxxxx.r3.cpolar.top");
+
+        new AlertDialog.Builder(this)
+                .setTitle("设置服务器地址")
+                .setMessage("当前地址：" + uploader.getBaseUrl())
+                .setView(input)
+                .setPositiveButton("保存", new DialogInterface.OnClickListener() {
+                    @Override public void onClick(DialogInterface d, int w) {
+                        String url = input.getText().toString().trim();
+                        if (!url.isEmpty()) {
+                            uploader.setBaseUrl(url);
+                            getSharedPreferences(PREF_NAME, MODE_PRIVATE)
+                                    .edit().putString(PREF_SERVER_URL, url).apply();
+                            toast("服务器地址已更新");
+                            log("服务器地址 -> " + url);
+                        }
+                    }
+                })
+                .setNegativeButton("取消", null)
+                .show();
     }
 }
